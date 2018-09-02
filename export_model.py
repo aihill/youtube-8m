@@ -26,10 +26,13 @@ _TOP_PREDICTIONS_IN_OUTPUT = 20
 
 class ModelExporter(object):
 
-  def __init__(self, frame_features, model, reader):
+  def __init__(self, frame_features, model, reader, float16_flag=False, cluster_size=None, hidden_size=None):
     self.frame_features = frame_features
     self.model = model
     self.reader = reader
+    self.float16_flag = float16_flag
+    self.cluster_size = cluster_size
+    self.hidden_size = hidden_size
 
     with tf.Graph().as_default() as graph:
       self.inputs, self.outputs = self.build_inputs_and_outputs()
@@ -62,11 +65,13 @@ class ModelExporter(object):
   def build_inputs_and_outputs(self):
     if self.frame_features:
       serialized_examples = tf.placeholder(tf.string, shape=(None,))
+      
+      dtype = tf.float16 if self.float16_flag else tf.float32
 
       fn = lambda x: self.build_prediction_graph(x)
       video_id_output, top_indices_output, top_predictions_output = (
           tf.map_fn(fn, serialized_examples,
-                    dtype=(tf.string, tf.int32, tf.float32)))
+                    dtype=(tf.string, tf.int32, dtype)))
 
     else:
       serialized_examples = tf.placeholder(tf.string, shape=(None,))
@@ -92,7 +97,17 @@ class ModelExporter(object):
     model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
 
     with tf.variable_scope("tower"):
-      result = self.model.create_model(
+      if self.cluster_size and self.hidden_size:
+        result = self.model.create_model(
+              model_input,
+              num_frames=num_frames,
+              vocab_size=self.reader.num_classes,
+              labels=labels_batch,
+              cluster_size = self.cluster_size,
+              hidden_size = self.hidden_size,
+              is_training=False)
+      else:
+        result = self.model.create_model(
           model_input,
           num_frames=num_frames,
           vocab_size=self.reader.num_classes,

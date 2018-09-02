@@ -41,10 +41,11 @@ class CrossEntropyLoss(BaseLoss):
   """Calculate the cross entropy loss between the predictions and labels.
   """
 
-  def calculate_loss(self, predictions, labels, **unused_params):
+  def calculate_loss(self, predictions, labels, float16_flag=False, **unused_params):
+    dtype = tf.float16 if float16_flag else tf.float32
     with tf.name_scope("loss_xent"):
       epsilon = 10e-6
-      float_labels = tf.cast(labels, tf.float32)
+      float_labels = tf.cast(labels, dtype)
       cross_entropy_loss = float_labels * tf.log(predictions + epsilon) + (
           1 - float_labels) * tf.log(1 - predictions + epsilon)
       cross_entropy_loss = tf.negative(cross_entropy_loss)

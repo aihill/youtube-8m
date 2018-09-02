@@ -19,19 +19,30 @@ import glob
 import json
 import tarfile
 import time
+
 import numpy
 import tensorflow as tf
 from tensorflow.python.lib.io import file_io
+
 from tensorflow import app
 from tensorflow import flags
 from tensorflow import gfile
 from tensorflow import logging
 
-import eval_util
-import losses
-import readers
-import utils
-
+try:
+    # relative imports on gcloud (as a module)
+    from . import eval_util
+    from . import losses
+    from . import readers
+    from . import utils
+except ImportError:
+    # relative imports locally (as a script)  
+    import eval_util
+    import losses
+    import readers
+    import utils
+    
+    
 FLAGS = flags.FLAGS
 
 if __name__ == '__main__':
@@ -40,6 +51,8 @@ if __name__ == '__main__':
                       "The directory to load the model files from. We assume "
                       "that you have already run eval.py onto this, such that "
                       "inference_model.* files already exist.")
+  flags.DEFINE_string("inference_model_file", "inference_model",
+                      "e.g. inference_model_78821")
   flags.DEFINE_string(
       "input_data_pattern", "",
       "File glob defining the evaluation dataset in tensorflow.SequenceExample "
@@ -71,7 +84,7 @@ if __name__ == '__main__':
   flags.DEFINE_integer(
       "batch_size", 8192,
       "How many examples to process per batch.")
-  flags.DEFINE_integer("num_readers", 1,
+  flags.DEFINE_integer("num_readers", 12,
                        "How many threads to use for reading input files.")
 
 def format_lines(video_ids, predictions, top_k):
@@ -123,63 +136,65 @@ def get_input_data_tensors(reader, data_pattern, batch_size, num_readers=1):
 def inference(reader, train_dir, data_pattern, out_file_location, batch_size, top_k):
   with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess, gfile.Open(out_file_location, "w+") as out_file:
     video_id_batch, video_batch, num_frames_batch = get_input_data_tensors(reader, data_pattern, batch_size)
-    checkpoint_file = os.path.join(FLAGS.train_dir, "inference_model")
+    checkpoint_file = os.path.join(FLAGS.train_dir,  FLAGS.inference_model_file)
     if not gfile.Exists(checkpoint_file + ".meta"):
       raise IOError("Cannot find %s. Did you run eval.py?" % checkpoint_file)
     meta_graph_location = checkpoint_file + ".meta"
     logging.info("loading meta-graph: " + meta_graph_location)
-
+    
     if FLAGS.output_model_tgz:
       with tarfile.open(FLAGS.output_model_tgz, "w:gz") as tar:
         for model_file in glob.glob(checkpoint_file + '.*'):
           tar.add(model_file, arcname=os.path.basename(model_file))
         tar.add(os.path.join(FLAGS.train_dir, "model_flags.json"),
                 arcname="model_flags.json")
-      print('Tarred model onto ' + FLAGS.output_model_tgz)
+      logging.info('Tarred model onto ' + FLAGS.output_model_tgz)
     with tf.device("/cpu:0"):
-      saver = tf.train.import_meta_graph(meta_graph_location, clear_devices=True)
-    logging.info("restoring variables from " + checkpoint_file)
-    saver.restore(sess, checkpoint_file)
-    input_tensor = tf.get_collection("input_batch_raw")[0]
-    num_frames_tensor = tf.get_collection("num_frames")[0]
-    predictions_tensor = tf.get_collection("predictions")[0]
+      #saver = tf.train.import_meta_graph(meta_graph_location, clear_devices=True)
+      saver = tf.train.import_meta_graph(meta_graph_location)
+      logging.info("restoring variables from " + checkpoint_file)
+      saver.restore(sess, checkpoint_file)
+      input_tensor = tf.get_collection("input_batch_raw")[0]
+      num_frames_tensor = tf.get_collection("num_frames")[0]
+      predictions_tensor = tf.get_collection("predictions")[0]
 
-    # Workaround for num_epochs issue.
-    def set_up_init_ops(variables):
-      init_op_list = []
-      for variable in list(variables):
-        if "train_input" in variable.name:
-          init_op_list.append(tf.assign(variable, 1))
-          variables.remove(variable)
-      init_op_list.append(tf.variables_initializer(variables))
-      return init_op_list
-
-    sess.run(set_up_init_ops(tf.get_collection_ref(
-        tf.GraphKeys.LOCAL_VARIABLES)))
-
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-    num_examples_processed = 0
-    start_time = time.time()
-    out_file.write("VideoId,LabelConfidencePairs\n")
-
-    try:
-      while not coord.should_stop():
-          video_id_batch_val, video_batch_val,num_frames_batch_val = sess.run([video_id_batch, video_batch, num_frames_batch])
-          predictions_val, = sess.run([predictions_tensor], feed_dict={input_tensor: video_batch_val, num_frames_tensor: num_frames_batch_val})
-          now = time.time()
-          num_examples_processed += len(video_batch_val)
-          num_classes = predictions_val.shape[1]
-          logging.info("num examples processed: " + str(num_examples_processed) + " elapsed seconds: " + "{0:.2f}".format(now-start_time))
-          for line in format_lines(video_id_batch_val, predictions_val, top_k):
-            out_file.write(line)
-          out_file.flush()
+      # Workaround for num_epochs issue.
+      def set_up_init_ops(variables):
+        init_op_list = []
+        for variable in list(variables):
+          if "train_input" in variable.name:
+            init_op_list.append(tf.assign(variable, 1))
+            variables.remove(variable)
+        init_op_list.append(tf.variables_initializer(variables))
+        return init_op_list
 
 
-    except tf.errors.OutOfRangeError:
-        logging.info('Done with inference. The output file was written to ' + out_file_location)
-    finally:
-        coord.request_stop()
+      sess.run(set_up_init_ops(tf.get_collection_ref(
+          tf.GraphKeys.LOCAL_VARIABLES)))
+
+      coord = tf.train.Coordinator()
+      threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+      num_examples_processed = 0
+      start_time = time.time()
+      out_file.write("VideoId,LabelConfidencePairs\n")
+
+      try:
+        while not coord.should_stop():
+            video_id_batch_val, video_batch_val,num_frames_batch_val = sess.run([video_id_batch, video_batch, num_frames_batch])
+            predictions_val, = sess.run([predictions_tensor], feed_dict={input_tensor: video_batch_val, num_frames_tensor: num_frames_batch_val})
+            now = time.time()
+            num_examples_processed += len(video_batch_val)
+            num_classes = predictions_val.shape[1]
+            logging.info("num examples processed: " + str(num_examples_processed) + " elapsed seconds: " + "{0:.2f}".format(now-start_time))
+            for line in format_lines(video_id_batch_val, predictions_val, top_k):
+              out_file.write(line)
+            out_file.flush()
+
+
+      except tf.errors.OutOfRangeError:
+          logging.info('Done with inference. The output file was written to ' + out_file_location)
+      finally:
+          coord.request_stop()
 
     coord.join(threads)
     sess.close()
@@ -192,8 +207,8 @@ def main(unused_argv):
       raise ValueError("You cannot supply --train_dir if supplying "
                        "--input_model_tgz")
     # Untar.
-    if not os.path.exists(FLAGS.untar_model_dir):
-      os.makedirs(FLAGS.untar_model_dir)
+    if not file_io.file_exists(FLAGS.untar_model_dir):
+      file_io.create_dir(FLAGS.untar_model_dir)
     tarfile.open(FLAGS.input_model_tgz).extractall(FLAGS.untar_model_dir)
     FLAGS.train_dir = FLAGS.untar_model_dir
 

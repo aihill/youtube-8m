@@ -38,8 +38,14 @@ aps = calculator.peek_map_at_n()
 """
 
 import numpy
-import average_precision_calculator
 
+try:
+    # relative imports on gcloud (as a module)
+    from . import average_precision_calculator
+except ImportError:
+    # relative imports locally (as a script)  
+    import average_precision_calculator
+    
 
 class MeanAveragePrecisionCalculator(object):
   """This class is to calculate mean average precision.

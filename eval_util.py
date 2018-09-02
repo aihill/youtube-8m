@@ -18,9 +18,15 @@ import numpy
 
 from tensorflow.python.platform import gfile
 
-import mean_average_precision_calculator as map_calculator
-import average_precision_calculator as ap_calculator
-
+try:
+    # relative imports on gcloud (as a module)
+    from . import mean_average_precision_calculator as map_calculator
+    from . import average_precision_calculator as ap_calculator
+except ImportError:
+    # relative imports locally (as a script)
+    import mean_average_precision_calculator as map_calculator
+    import average_precision_calculator as ap_calculator
+    
 def flatten(l):
   """ Merges a list of lists into a single list. """
   return [item for sublist in l for item in sublist]

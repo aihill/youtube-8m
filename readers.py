@@ -15,7 +15,13 @@
 """Provides readers configured for different datasets."""
 
 import tensorflow as tf
-import utils
+
+try:
+    # relative imports on gcloud (as a module)
+    from . import utils
+except ImportError:
+    # relative imports locally (as a script)      
+    import utils
 
 from tensorflow import logging
 def resize_axis(tensor, axis, new_size, fill_value=0):
@@ -141,7 +147,8 @@ class YT8MFrameFeatureReader(BaseReader):
                num_classes=3862,
                feature_sizes=[1024, 128],
                feature_names=["rgb", "audio"],
-               max_frames=300):
+               max_frames=300,
+               float16_flag=False):
     """Construct a YT8MFrameFeatureReader.
 
     Args:
@@ -159,6 +166,7 @@ class YT8MFrameFeatureReader(BaseReader):
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
     self.max_frames = max_frames
+    self.float16_flag = float16_flag
 
   def get_video_matrix(self,
                        features,
@@ -179,8 +187,11 @@ class YT8MFrameFeatureReader(BaseReader):
       feature_matrix: matrix of all frame-features
       num_frames: number of frames in the sequence
     """
+        
+    dtype = tf.float16 if self.float16_flag else tf.float32
+    
     decoded_features = tf.reshape(
-        tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
+        tf.cast(tf.decode_raw(features, tf.uint8), dtype),
         [-1, feature_size])
 
     num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
