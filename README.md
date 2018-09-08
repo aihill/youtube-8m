@@ -1,4 +1,4 @@
-# 10th place solution to the [2nd YouTube-8M Video Understanding Challenge](https://www.kaggle.com/c/youtube8m-2018)
+# 7th place solution to the [2nd YouTube-8M Video Understanding Challenge](https://www.kaggle.com/c/youtube8m-2018)
 The code is based on:
 1. https://github.com/google/youtube-8m
 2. Winning solution of the first YouTube-8M Video Understanding Challenge at https://github.com/antoine77340/Youtube-8M-WILLOW
